@@ -5,17 +5,25 @@ Created on Wed Apr  8 22:00:43 2026
 @author: antwi
 """
 
+
 import numpy as np
 import matplotlib.pyplot as plt
 from skimage import io, color
+from Svd_algorithms import svd_compressor_main
 
-image = io.imread('D:\MSU\computalgebra\project-svd\svd_image_compression\original_images')
+image = io.imread('original_images\Dr.Zhao.jpg')
 gray = color.rgb2gray(image)
 
 A = gray
 
 U, S, VT = np.linalg.svd(A, full_matrices=False)
+#S_matrix, U, V = svd_compressor_main(A)
 
+# 1. Extract the 1D array for S (most compression logic expects this)
+#S = np.diag(S_matrix) 
+
+# 2. Transpose V to get VT
+#VT = V.T
 
 k = 50 #reduce k makes blurry
 

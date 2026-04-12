@@ -1,130 +1,99 @@
 import numpy as np
 import pytest
 
-# Import your functions from your implementation file
-# Replace 'svd_implementation' with the actual name of your .py file
-from Svd_algorithms import (
-    algorithm_1a, algorithm_1b, algorithm_1c, 
-    solve_equation, algorithm_5
-)
+# Ensure the filename 'Svd_algorithms' matches your actual .py file
+from Svd_algorithms import svd_compressor_main
 
-class TestSVDSystem:
-    """
-    Comprehensive Test for SVD Algorithms
-    """
+def assert_svd_properties(A, S, U, V, tol=1e-9):
+    '''
+    Helper to verify the fundamental properties of SVD.
     
-    def setup_method(self):
-        # Standard test matrix (3x3 symmetric)
-        self.A_sym = np.array([
-            [2, 1, 0],
-            [1, 2, 1],
-            [0, 1, 2]
-        ], dtype=float)
-        
-        # Rectangular test matrix (4x3)
-        self.A_rect = np.array([
-            [1, 2, 3],
-            [4, 5, 6],
-            [7, 8, 9],
-            [10, 11, 12]
-        ], dtype=float)
+    Parameters:
+        A (ndarray): Original input matrix.
+        S (ndarray): Computed diagonal singular value matrix.
+        U (ndarray): Computed left singular vectors.
+        V (ndarray): Computed right singular vectors.
+        tol (float): Numerical tolerance for comparisons.
+    '''
+    m, n = A.shape
+    
+    # PROPERTY 1: Reconstruction (A ≈ U @ S @ V.T)
+    A_reconstructed = U @ S @ V.T
+    np.testing.assert_allclose(A, A_reconstructed, atol=tol, 
+                               err_msg="Reconstruction A = USV^T failed")
 
-    # --- 1. Test Algorithm 1a (Bidiagonalization) ---
-    def test_bidiagonalization(self):
-        print("\nTesting 1a: Householder Bidiagonalization...")
-        for A in [self.A_sym, self.A_rect]:
-            m, n = A.shape
-            B, U, V = algorithm_1a(m, n, A)
-            
-            # Identity: A = UBV^T
-            reconstruction = U @ B @ V.T
-            assert np.allclose(A, reconstruction, atol=1e-10)
-            
-            # Orthogonality: U'U = I, V'V = I
-            assert np.allclose(U.T @ U, np.identity(m), atol=1e-10)
-            assert np.allclose(V.T @ V, np.identity(n), atol=1e-10)
-            
-            # Structure: Elements below diag and above super-diag should be 0
-            # Check lower triangle (excluding main diag)
-            assert np.allclose(np.tril(B, -1), 0, atol=1e-12)
-            # Check elements above first super-diagonal
-            assert np.allclose(np.triu(B, 2), 0, atol=1e-12)
+    # PROPERTY 2: Orthogonality of U (Columns are orthonormal)
+    # U should be (m, k). U.T @ U should be (k, k) identity.
+    k = S.shape[0] if m >= n else S.shape[1]
+    expected_u_identity = np.eye(U.shape[1])
+    np.testing.assert_allclose(U.T @ U, expected_u_identity, atol=tol, 
+                               err_msg="U is not semi-orthogonal")
 
-    # --- 2. Test Algorithm 1c (Implicit QR Step) ---
-    def test_qr_step_invariants(self):
-        print("\nTesting 1c: Singular Value Invariance in QR Step...")
-        # Create a 3x3 bidiagonal matrix
-        B = np.array([[4.0, 1.0, 0.0], [0.0, 3.0, 1.0], [0.0, 0.0, 2.0]])
-        n = 3
-        
-        expected_sv = np.sort(np.linalg.svd(B, compute_uv=False))
-        
-        # Run one step
-        B_new, U_new, V_new = algorithm_1c(n, B.copy(), np.identity(3), np.identity(3), 0, 0)
-        
-        actual_sv = np.sort(np.linalg.svd(B_new, compute_uv=False))
-        
-        # The singular values must not change during the "chase"
-        print(expected_sv)
-        print(actual_sv)
-        assert np.allclose(expected_sv, actual_sv, atol=1e-10)
-        # Ensure it's still bidiagonal
-        assert np.allclose(np.tril(B_new, -1), 0, atol=1e-12)
+    # PROPERTY 3: Orthogonality of V (Columns are orthonormal)
+    # V should be (n, k). V.T @ V should be (k, k) identity.
+    expected_v_identity = np.eye(V.shape[1])
+    np.testing.assert_allclose(V.T @ V, expected_v_identity, atol=tol, 
+                               err_msg="V is not semi-orthogonal")
 
-    # --- 3. Test Algorithm 1b (Golub-Reinsch Driver) ---
-    def test_full_qr_svd(self):
-        print("\nTesting 1b: Full Convergence and Accuracy...")
-        A = self.A_sym
-        m, n = A.shape
-        
-        S_comp, U, V = algorithm_1b(m, n, A)
-        S_ref = np.sort(np.linalg.svd(A, compute_uv=False))[::-1]
-        
-        # Accuracy vs NumPy
-        assert np.allclose(S_comp, S_ref, atol=1e-8)
-        
-        # Full Reconstruction A = USV^T
-        Sigma = np.zeros((m, n))
-        np.fill_diagonal(Sigma, S_comp)
-        assert np.allclose(A, U @ Sigma @ V.T, atol=1e-8)
+    # PROPERTY 4: Singular Values
+    s = np.diag(S) if S.ndim > 1 else S
+    assert np.all(s >= -tol), "Found negative singular values"
+    
+    # Check 4b: Sorted order (np.diff <= 0 for descending)
+    diffs = np.diff(s)
+    assert np.all(diffs <= 1e-12), f"Singular values not sorted: {s}"
 
-    # --- 4. Test Secular Solver (D&C) ---
-    def test_secular_equation(self):
-        print("\nTesting Secular Solver: Root Interlacing...")
-        d = np.array([1.0, 2.0, 5.0])
-        z = np.array([0.5, 0.5, 0.5])
-        
-        # Roots must interlace between d[i] and d[i+1]
-        for i in range(len(d) - 1):
-            root = solve_equation(d, z, i)
-            assert d[i] < root < d[i+1]
-            
-            # Check if f(root) is actually zero
-            f_val = 1.0 + np.sum(z**2 / (d**2 - root**2))
-            assert abs(f_val) < 1e-10
 
-    # --- 5. Test Algorithm 5 (Divide and Conquer) ---
-    def test_divide_and_conquer(self):
-        print("\nTesting Algorithm 5: Recursive SVD...")
-        # Small bidiagonal matrix
-        B = np.array([[5, 1], [0, 2]], dtype=float)
-        n = 2
-        
-        # We check if D&C correctly handles the rank-one update
-        # (Assuming your D&C logic for u_new/v_new is implemented)
-        try:
-            S_comp, U, V = algorithm_5(n, B, np.eye(3), np.eye(2))
-            S_ref = np.sort(np.linalg.svd(B, compute_uv=False))[::-1]
-            assert np.allclose(np.sort(S_comp)[::-1], S_ref, atol=1e-7)
-        except Exception as e:
-            pytest.fail(f"Algorithm 5 failed with error: {e}")
+### --- TEST CASES ---
 
-if __name__ == "__main__":
-    # If running manually without pytest
-    tester = TestSVDSystem()
-    tester.setup_method()
-    tester.test_bidiagonalization()
-    tester.test_qr_step_invariants()
-    tester.test_full_qr_svd()
-    tester.test_secular_equation()
-    print("\nAll individual algorithm tests completed successfully.")
+def test_square_matrix():
+    '''CASE: Basic 3x3 square matrix with known values.'''
+    A = np.array([[4, 11, 14], [8, 7, -2], [1, -5, 3]], dtype=float)
+    S, U, V = svd_compressor_main(A)
+    assert_svd_properties(A, S, U, V)
+
+def test_tall_matrix():
+    '''CASE: m > n (more rows than columns).'''
+    A = np.random.randn(10, 5)
+    S, U, V = svd_compressor_main(A)
+    assert_svd_properties(A, S, U, V)
+
+def test_wide_matrix():
+    '''CASE: m < n (more columns than rows).'''
+    A = np.random.randn(5, 10)
+    S, U, V = svd_compressor_main(A)
+    assert_svd_properties(A, S, U, V)
+
+def test_singular_matrix():
+    '''CASE: Matrix with rank 1 (linearly dependent rows/cols).'''
+    A = np.outer(np.array([1, 2, 3]), np.array([1, 1, 1]))
+    S, U, V = svd_compressor_main(A)
+    assert_svd_properties(A, S, U, V)
+    
+    # Verify only the first singular value is significant
+    s = np.diag(S)
+    assert s[0] > 1e-10
+    np.testing.assert_allclose(s[1:], 0, atol=1e-10)
+
+def test_zero_matrix():
+    '''CASE: All elements are zero.'''
+    A = np.zeros((4, 4))
+    S, U, V = svd_compressor_main(A)
+    assert_svd_properties(A, S, U, V)
+    assert np.all(np.diag(S) <= 1e-15)
+
+def test_identity_matrix():
+    '''CASE: Identity matrix (Singular values should all be 1).'''
+    A = np.eye(5)
+    S, U, V = svd_compressor_main(A)
+    assert_svd_properties(A, S, U, V)
+    np.testing.assert_allclose(np.diag(S), np.ones(5), atol=1e-10)
+
+def test_comparison_with_numpy():
+    '''GOAL: Compare result against NumPy's library standard.'''
+    A = np.random.rand(8, 5)
+    S, _, _ = svd_compressor_main(A)
+    expected_s = np.linalg.svd(A, compute_uv=False)
+    
+    # Verify S-diagonal matches np.linalg.svd
+    np.testing.assert_allclose(np.diag(S)[:len(expected_s)], expected_s, atol=1e-9)
