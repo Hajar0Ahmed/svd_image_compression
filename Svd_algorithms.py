@@ -1,4 +1,5 @@
 import numpy as np
+from scipy.optimize import brentq
 
 # =============================================================================
 # Algorithm 1: Golub-Reinsch SVD
@@ -39,32 +40,37 @@ def algorithm_1a(A):
     V = np.identity(n)
 
     for k in range(n):
-        ## Left Transformation ##
+        ## Left Transformation (Eliminate below B[k,k]) ##
         x = B[k:m, k]
         norm_x = np.linalg.norm(x)
-        if norm_x > 1e-15:
+        if norm_x > 1e-15:  # Slightly higher than machine epsilon
             s = np.sign(x[0] if x[0] != 0 else 1.0) * norm_x
             v = x.copy()
             v[0] += s
-            v /= np.linalg.norm(v)
-            
-            # Apply to B and U
-            B[k:m, k:] -= 2 * np.outer(v, v @ B[k:m, k:])
-            U[:, k:m] -= 2 * (U[:, k:m] @ v)[:, None] @ v[None, :]
+            v_norm = np.linalg.norm(v)
+            if v_norm > 1e-18:
+                v /= v_norm
+                # Apply to B and U
+                B[k:m, k:] -= 2 * np.outer(v, v @ B[k:m, k:])
+                U[:, k:m] -= 2 * (U[:, k:m] @ v)[:, None] @ v[None, :]
 
-        ## Right Transformation ##
-        # CHANGE: k < n - 1 and slice starting at k+1
+        ## Right Transformation (Eliminate right of B[k, k+1]) ##
         if k < n - 1:
             y = B[k, k+1:n]
             norm_y = np.linalg.norm(y)
-            if norm_y > 1e-15:
-                s_row = np.sign(y[0] if y[0] != 0 else 1.0) * norm_y
-                v_row = y.copy()
-                v_row[0] += s_row
-                v_row /= np.linalg.norm(v_row)
-                
-                # Apply to B and V
-                # We update the submatrix starting from column k+1
+            if norm_y < 1e-30:
+                y = np.zeros_like(y)
+                y[0] = 1.0
+                norm_y = 1.0
+
+            s_row = np.sign(y[0]) * norm_y
+            v_row = y.copy()
+            v_row[0] += s_row
+
+            v_row_norm = np.linalg.norm(v_row)
+            if v_row_norm > 1e-30:
+                v_row /= v_row_norm
+
                 B[k:, k+1:n] -= 2 * (B[k:, k+1:n] @ v_row)[:, None] @ v_row[None, :]
                 V[:, k+1:n] -= 2 * (V[:, k+1:n] @ v_row)[:, None] @ v_row[None, :]
                 
@@ -87,10 +93,19 @@ def givens_coefficients(y, z):
         - r = sqrt(y^2 + z^2)
         - c = y/r, s = z/r
     '''
-    r = np.hypot(y, z)
-    if r == 0:
+    if z == 0:
         return 1.0, 0.0
-    return y/r, z/r
+    
+    if abs(z) > abs(y):
+        tau = y / z
+        s = 1.0 / np.sqrt(1 + tau**2)
+        c = s * tau
+    else:
+        tau = z / y
+        c = 1.0 / np.sqrt(1 + tau**2)
+        s = c * tau
+        
+    return c, s
 
 
 def algorithm_1c(B, U, V, p, q):
@@ -147,39 +162,25 @@ def algorithm_1c(B, U, V, p, q):
 
 
 def algorithm_1b(A, max_iter=1000, eps=1e-12):
-    '''
-    STEP 3: The Iterative SVD Solver
-    Governs the splitting of the matrix and convergence logic.
-    
-    Parameters:
-        A (ndarray): m x n input matrix.
-        max_iter (int): Safety limit to prevent infinite loops.
-        eps (float): Machine precision tolerance for convergence.
-        
-    Returns:
-        S (ndarray): Diagonal matrix of singular values.
-        U (ndarray): Left singular vectors.
-        V (ndarray): Right singular vectors.
-        singular_values (ndarray): 1D array of sorted singular values.
-    '''
     m, n = A.shape
     B, U, V = algorithm_1a(A)
     Bs = B[:n, :n].copy()
-    U = U[:, :n].copy() 
 
     for _ in range(max_iter):
-        # 1. Zeroing Small Superdiagonal Elements
-        # Formula: |b_{i, i+1}| <= eps * (|b_{ii}| + |b_{i+1,i+1}|)
+        # Step 1: Zero small superdiagonal elements
         for i in range(n - 1):
             if abs(Bs[i, i+1]) <= eps * (abs(Bs[i, i]) + abs(Bs[i+1, i+1])):
                 Bs[i, i+1] = 0.0
 
-        # 2. Identify Converged (q) and Active (p) Blocks
+    
         q = 0
         for i in range(n - 2, -1, -1):
-            if Bs[i, i+1] == 0.0: q += 1
-            else: break
-        if q == n - 1: break # Convergence achieved
+            if Bs[i, i+1] == 0.0:
+                q += 1
+            else:
+                break
+        if q == n - 1:
+            break  
 
         p = 0
         for i in range(n - q - 2, -1, -1):
@@ -187,7 +188,7 @@ def algorithm_1b(A, max_iter=1000, eps=1e-12):
                 p = i + 1
                 break
 
-        # 3. Apply Shifted QR or Handle Singular Diagonal Elements
+        # Step 3: Check for a zero diagonal in the active block
         zero_diag_idx = -1
         for i in range(p, n - q):
             if abs(Bs[i, i]) < eps:
@@ -195,71 +196,105 @@ def algorithm_1b(A, max_iter=1000, eps=1e-12):
                 break
 
         if zero_diag_idx >= 0:
-            #zero out the super-diagonal element Bs[i, i+1]
             i = zero_diag_idx
-            # If the zero is at Bs[i,i], we use Left rotations to zero Bs[i, i+1]
+
             if i < n - q - 1:
+                # -------------------------------------------------------
+                # Case A: Zero diagonal is NOT the last row of active block.
+                # -------------------------------------------------------
                 f = Bs[i, i+1]
                 Bs[i, i+1] = 0.0
+
                 for j in range(i + 1, n - q):
+                    # Left rotation on rows i and j to zero f using Bs[j,j]
                     c, s = givens_coefficients(Bs[j, j], f)
-                    Bs[j, j] = np.hypot(Bs[j, j], f)
+
+                    new_jj = c * Bs[j, j] + s * f
+                    f      = -s * Bs[j, j] + c * f
+                    Bs[j, j] = new_jj
+
                     if j < n - q - 1:
-                        f = -s * Bs[j, j+1]
-                        Bs[j, j+1] = c * Bs[j, j+1]
-                    
-                    # Update U (Left rotations)
-                    U[:, i], U[:, j] = c*U[:, i] - s*U[:, j], s*U[:, i] + c*U[:, j]
+                        f_next      = -s * Bs[j, j+1]
+                        Bs[j, j+1] =  c * Bs[j, j+1]
+                        f = f_next
+
+                    # Left rotation updates U (acting on rows of B = cols of U^T)
+                    U[:, i], U[:, j] = (
+                         c * U[:, i] + s * U[:, j],
+                        -s * U[:, i] + c * U[:, j]
+                    )
+
+            else:
+                # -------------------------------------------------------
+                # Case B: Zero diagonal IS the last row of the active block
+                # (i == n-q-1). 
+                # -------------------------------------------------------
+                f = Bs[i - 1, i]
+                Bs[i - 1, i] = 0.0
+
+                # Single right rotation: zero Bs[i-1, i] using Bs[i-1, i-1]
+                c, s = givens_coefficients(Bs[i - 1, i - 1], f)
+
+                col_im1 = Bs[:, i - 1].copy()
+                col_i   = Bs[:, i].copy()
+                col_i[i - 1] = f  # restore the entry we just zeroed for the rotation
+
+                Bs[:, i - 1] =  c * col_im1 + s * col_i
+                Bs[:, i]     = -s * col_im1 + c * col_i
+
+                # Right rotation updates V
+                V[:, i - 1], V[:, i] = (
+                     c * V[:, i - 1] + s * V[:, i],
+                    -s * V[:, i - 1] + c * V[:, i]
+                )
+
         else:
             Bs, U, V = algorithm_1c(Bs, U, V, p, q)
 
-    #Ensure non-negativity and descending order
     sv_raw = np.diag(Bs)
-    signs = np.where(sv_raw < 0, -1.0, 1.0)
-    U = U * signs[np.newaxis, :]
     singular_values = np.abs(sv_raw)
-
     idx = np.argsort(singular_values)[::-1]
-    return np.diag(singular_values[idx]), U[:, idx], V[:, idx], singular_values[idx]
 
+    S_diag = np.diag(singular_values[idx])
+    V_sorted = V[:, idx]
+
+    U_sorted = U.copy()
+    U_sorted[:, :n] = U[:, idx]
+
+    signs = np.where(sv_raw[idx] < 0, -1.0, 1.0)
+    U_sorted[:, :n] *= signs[np.newaxis, :]
+
+    return S_diag, U_sorted, V_sorted, singular_values[idx]
+
+
+
+# =============================================================================
+# Driver Function
+# This ensures that assumptions are met for both algorithms
+# =============================================================================
 
 def svd_compressor_main(image_matrix):
-    '''
-    Driver for SVD-based Image Compression.
     
-    Parameters:
-        image_matrix (ndarray): Input image as a 2D float array.
-        
-    Returns:
-        S, U, V (ndarray): The full SVD decomposition components.
-        
-    Assumptions:
-        - Handles both tall (m > n) and wide (m < n) matrices by using 
-          the property: A = U S V^T  => A^T = V S^T U^T.
-    '''
     A_input = np.array(image_matrix, dtype=np.float64)
-    m, n = A_input.shape
+    m_orig, n_orig = A_input.shape
     
     is_transposed = False
-    if m < n:
-        # If wide, transpose to satisfy m >= n for the algorithm.
+    if m_orig < n_orig:
         A_input = A_input.T
         is_transposed = True
 
-    # curr_m is now always >= curr_n
-    curr_m, curr_n = A_input.shape
-    S_bidiag, U_raw, V_raw, s_values = algorithm_1b(A_input)
+    m, n = A_input.shape 
 
-    # For Thin SVD: S is square (k, k), U is (m, k), V is (n, k).
-    # Here k = curr_n.
-    S_working = np.diag(s_values)
+    _, U_raw, V_raw, s_values = algorithm_1b(A_input)
+    
+
+    
+    #Reassembly
+    S_rect = np.zeros((m, n))
+    k = len(s_values)
+    S_rect[:k, :k] = np.diag(s_values)
 
     if is_transposed:
-        # If we transposed: Original A was (m, n).
-        # Algorithm ran on A.T (n, m).
-        # U_raw is (n, m), V_raw is (m, m).
-        # A = (V_raw) @ (S_working.T) @ (U_raw.T)
-        return S_working.T, V_raw, U_raw
+        return S_rect.T, V_raw, U_raw
     else:
-        # A = U_raw @ S_working @ V_raw.T
-        return S_working, U_raw, V_raw
+        return S_rect, U_raw, V_raw

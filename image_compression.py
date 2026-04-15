@@ -16,16 +16,16 @@ gray = color.rgb2gray(image)
 
 A = gray
 
-U, S, VT = np.linalg.svd(A, full_matrices=False)
-#S_matrix, U, V = svd_compressor_main(A)
+# Original SVD Code: U, S, VT = np.linalg.svd(A, full_matrices=False)
+S_matrix, U, V = svd_compressor_main(A)
 
 # 1. Extract the 1D array for S (most compression logic expects this)
-#S = np.diag(S_matrix) 
+S = np.diag(S_matrix) 
 
 # 2. Transpose V to get VT
-#VT = V.T
+VT = V.T
 
-k = 50 #reduce k makes blurry
+k = 35 #reduce k makes blurry
 
 A_k = U[:, :k] @ np.diag(S[:k]) @ VT[:k, :]
 

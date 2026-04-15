@@ -89,11 +89,31 @@ def test_identity_matrix():
     assert_svd_properties(A, S, U, V)
     np.testing.assert_allclose(np.diag(S), np.ones(5), atol=1e-10)
 
+def test_ill_conditioned():
+    '''CASE: Ill conditioned matrix (Singular values should all be 1).'''
+    s = np.array([1, 1e-4, 1e-8, 1e-12, 1e-16])
+    A = np.diag(s)
+    
+    S, U, V = svd_compressor_main(A)
+    
+    np.testing.assert_allclose(np.diag(S), s, rtol=1e-8, atol=1e-12)
+    
+
 def test_comparison_with_numpy():
-    '''GOAL: Compare result against NumPy's library standard.'''
+    '''Compare result against NumPy's library standard.'''
     A = np.random.rand(8, 5)
     S, _, _ = svd_compressor_main(A)
     expected_s = np.linalg.svd(A, compute_uv=False)
     
     # Verify S-diagonal matches np.linalg.svd
     np.testing.assert_allclose(np.diag(S)[:len(expected_s)], expected_s, atol=1e-9)
+
+
+def test_backward_error():
+    A = np.random.randn(20, 20)
+    S, U, V = svd_compressor_main(A)
+    
+    A_reconstructed = U @ S @ V.T
+    backward_error = np.linalg.norm(A - A_reconstructed) / np.linalg.norm(A)
+    
+    assert backward_error < 1e-14
