@@ -41,7 +41,6 @@ def one_case(A, name):
     p = min(m, n)
 
     S, U, V = svd_compressor_main(A)
-
     A_rec = U @ S @ V.T
 
     s_custom = get_s(S, p)
@@ -51,14 +50,17 @@ def one_case(A, name):
     Vh = V[:, :p]
     Sh = np.diag(s_custom)
 
-    rec_fro = fro_err(A, A_rec)
-    rec_two = two_err(A, A_rec)
-
-    orth_u = np.linalg.norm(U.T @ U - np.eye(U.shape[1]), 'fro')
-    orth_v = np.linalg.norm(V.T @ V - np.eye(V.shape[1]), 'fro')
-
+    # forward stability
     sv_rel = rel_err(s_numpy, s_custom)
     sv_max = np.max(np.abs(s_custom - s_numpy))
+
+    # backward stability
+    back_fro = fro_err(A, A_rec)
+    back_two = two_err(A, A_rec)
+
+    # general stability checks
+    orth_u = np.linalg.norm(U.T @ U - np.eye(U.shape[1]), 'fro')
+    orth_v = np.linalg.norm(V.T @ V - np.eye(V.shape[1]), 'fro')
 
     right_eq = np.linalg.norm(A @ Vh - Uh @ Sh, 'fro')
     left_eq = np.linalg.norm(A.T @ Uh - Vh @ Sh, 'fro')
@@ -80,14 +82,21 @@ def one_case(A, name):
     out.append(name)
     out.append(f'{m}x{n}')
     out.append(cond2)
-    out.append(rec_fro)
-    out.append(rec_two)
-    out.append(orth_u)
-    out.append(orth_v)
+
+    # forward
     out.append(sv_rel)
     out.append(sv_max)
+
+    # backward
+    out.append(back_fro)
+    out.append(back_two)
+
+    # general
+    out.append(orth_u)
+    out.append(orth_v)
     out.append(right_eq)
     out.append(left_eq)
+
     out.append(int(rank_custom))
     out.append(int(rank_numpy))
 
@@ -135,17 +144,13 @@ def print_table(results):
     print('case'.ljust(28), '|',
           'shape'.ljust(6), '|',
           'cond2'.ljust(10), '|',
-          'rec_fro'.ljust(10), '|',
+          'forward_sv'.ljust(10), '|',
+          'back_fro'.ljust(10), '|',
           'orth_u'.ljust(10), '|',
-          'orth_v'.ljust(10), '|',
-          'sv_rel'.ljust(10), '|',
-          'right_eq'.ljust(10), '|',
-          'left_eq'.ljust(10))
+          'orth_v'.ljust(10))
 
     print('-' * 28, '+',
           '-' * 6, '+',
-          '-' * 10, '+',
-          '-' * 10, '+',
           '-' * 10, '+',
           '-' * 10, '+',
           '-' * 10, '+',
@@ -156,12 +161,10 @@ def print_table(results):
         name = r[0]
         shape = r[1]
         cond2 = r[2]
-        rec_fro = r[3]
-        orth_u = r[5]
-        orth_v = r[6]
-        sv_rel = r[7]
-        right_eq = r[9]
-        left_eq = r[10]
+        sv_rel = r[3]
+        back_fro = r[5]
+        orth_u = r[7]
+        orth_v = r[8]
 
         if np.isfinite(cond2):
             cond2_txt = f'{cond2:.3e}'
@@ -171,29 +174,57 @@ def print_table(results):
         print(name.ljust(28), '|',
               shape.ljust(6), '|',
               cond2_txt.ljust(10), '|',
-              f'{rec_fro:.3e}'.ljust(10), '|',
-              f'{orth_u:.3e}'.ljust(10), '|',
-              f'{orth_v:.3e}'.ljust(10), '|',
               f'{sv_rel:.3e}'.ljust(10), '|',
-              f'{right_eq:.3e}'.ljust(10), '|',
-              f'{left_eq:.3e}'.ljust(10))
+              f'{back_fro:.3e}'.ljust(10), '|',
+              f'{orth_u:.3e}'.ljust(10), '|',
+              f'{orth_v:.3e}'.ljust(10))
+
+
+def print_detail(results):
+    print('\nDetailed results:')
+
+    for r in results:
+        print('\nCase:', r[0])
+        print('shape         =', r[1])
+
+        if np.isfinite(r[2]):
+            print('cond2         =', f'{r[2]:.3e}')
+        else:
+            print('cond2         = inf')
+
+        print('forward stability')
+        print('  sv_rel       =', f'{r[3]:.3e}')
+        print('  sv_max       =', f'{r[4]:.3e}')
+
+        print('backward stability')
+        print('  back_fro     =', f'{r[5]:.3e}')
+        print('  back_two     =', f'{r[6]:.3e}')
+
+        print('general stability')
+        print('  orth_u       =', f'{r[7]:.3e}')
+        print('  orth_v       =', f'{r[8]:.3e}')
+        print('  right_eq     =', f'{r[9]:.3e}')
+        print('  left_eq      =', f'{r[10]:.3e}')
+        print('  rank_custom  =', r[11])
+        print('  rank_numpy   =', r[12])
 
 
 def print_summary(results):
-    recs = []
-    orths = []
-    svs = []
+    forward_vals = []
+    backward_vals = []
+    general_vals = []
 
     for r in results:
-        recs.append(r[3])
-        orths.append(max(r[5], r[6]))
-        svs.append(r[7])
+        forward_vals.append(r[3])
+        backward_vals.append(r[5])
+        general_vals.append(max(r[7], r[8], r[9], r[10]))
 
     print('\nSummary:')
-    print(f'best reconstruction error  : {min(recs):.3e}')
-    print(f'worst reconstruction error : {max(recs):.3e}')
-    print(f'worst orthogonality error  : {max(orths):.3e}')
-    print(f'worst singular value error : {max(svs):.3e}')
+    print('best forward error      :', f'{min(forward_vals):.3e}')
+    print('worst forward error     :', f'{max(forward_vals):.3e}')
+    print('best backward error     :', f'{min(backward_vals):.3e}')
+    print('worst backward error    :', f'{max(backward_vals):.3e}')
+    print('worst general check     :', f'{max(general_vals):.3e}')
 
     print('\nScaling diagnostic:')
     for r in results:
@@ -203,7 +234,7 @@ def print_summary(results):
             else:
                 cond2_txt = 'inf'
 
-            print(f'{r[0]}: rec_fro={r[3]:.3e}, sv_rel={r[7]:.3e}, cond2={cond2_txt}')
+            print(f'{r[0]}: forward_sv={r[3]:.3e}, back_fro={r[5]:.3e}, cond2={cond2_txt}')
 
 
 def main():
@@ -217,6 +248,7 @@ def main():
         results.append(out)
 
     print_table(results)
+    print_detail(results)
     print_summary(results)
 
 
