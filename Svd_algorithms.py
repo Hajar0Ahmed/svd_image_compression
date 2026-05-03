@@ -145,14 +145,25 @@ def algorithm_1c(B, U, V, p, q):
     for k in range(p, n - q - 1):
         # Right Rotation G(k, k+1, theta) applied to V and B
         c, s = givens_coefficients(y, z)
-        B[:, k], B[:, k+1] = c*B[:, k] + s*B[:, k+1], -s*B[:, k] + c*B[:, k+1]
-        V[:, k], V[:, k+1] = c*V[:, k] + s*V[:, k+1], -s*V[:, k] + c*V[:, k+1]
+        # Right rotation on B columns
+        Bk  = c*B[:, k] + s*B[:, k+1]
+        Bk1 = -s*B[:, k] + c*B[:, k+1]
+        B[:, k], B[:, k+1] = Bk, Bk1
+        Vk  = c*V[:, k] + s*V[:, k+1]
+        Vk1 = -s*V[:, k] + c*V[:, k+1]
+        V[:, k], V[:, k+1] = Vk, Vk1
 
         #Left Rotation G(k, k+1, phi) applied to U and B to restore bidiagonal form
         y, z = B[k, k], B[k+1, k]
         c, s = givens_coefficients(y, z)
-        B[k, :], B[k+1, :] = c*B[k, :] + s*B[k+1, :], -s*B[k, :] + c*B[k+1, :]
-        U[:, k], U[:, k+1] = c*U[:, k] + s*U[:, k+1], -s*U[:, k] + c*U[:, k+1]
+        Bk  = c*B[k, :] + s*B[k+1, :]
+        Bk1 = -s*B[k, :] + c*B[k+1, :]
+        B[k, :], B[k+1, :] = Bk, Bk1
+        
+        Uk  = c*U[:, k] + s*U[:, k+1]
+        Uk1 = -s*U[:, k] + c*U[:, k+1]
+        U[:, k], U[:, k+1] = Uk, Uk1
+        
         B[k+1, k] = 0.0 
 
         if k < n - q - 2:
@@ -161,7 +172,7 @@ def algorithm_1c(B, U, V, p, q):
     return B, U, V
 
 
-def algorithm_1b(A, max_iter=1000, eps=1e-12):
+def algorithm_1b(A, max_iter=100000, eps=1e-12):
     m, n = A.shape
     B, U, V = algorithm_1a(A)
     Bs = B[:n, :n].copy()
@@ -182,11 +193,11 @@ def algorithm_1b(A, max_iter=1000, eps=1e-12):
         if q == n - 1:
             break  
 
+            
         p = 0
-        for i in range(n - q - 2, -1, -1):
+        for i in range(n - q - 2):
             if Bs[i, i+1] == 0.0:
                 p = i + 1
-                break
 
         # Step 3: Check for a zero diagonal in the active block
         zero_diag_idx = -1
@@ -219,10 +230,9 @@ def algorithm_1b(A, max_iter=1000, eps=1e-12):
                         f = f_next
 
                     # Left rotation updates U (acting on rows of B = cols of U^T)
-                    U[:, i], U[:, j] = (
-                         c * U[:, i] + s * U[:, j],
-                        -s * U[:, i] + c * U[:, j]
-                    )
+                    ui = c * U[:, i] + s * U[:, j]
+                    uj = -s * U[:, i] + c * U[:, j]
+                    U[:, i], U[:, j] = ui, uj
 
             else:
                 # -------------------------------------------------------
@@ -243,10 +253,9 @@ def algorithm_1b(A, max_iter=1000, eps=1e-12):
                 Bs[:, i]     = -s * col_im1 + c * col_i
 
                 # Right rotation updates V
-                V[:, i - 1], V[:, i] = (
-                     c * V[:, i - 1] + s * V[:, i],
-                    -s * V[:, i - 1] + c * V[:, i]
-                )
+                vi= c * V[:, i - 1] + s * V[:, i]
+                vj= -s * V[:, i - 1] + c * V[:, i]
+                V[:, i - 1], V[:, i] = (vi,vj)
 
         else:
             Bs, U, V = algorithm_1c(Bs, U, V, p, q)

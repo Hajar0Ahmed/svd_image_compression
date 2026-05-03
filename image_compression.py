@@ -25,7 +25,7 @@ S = np.diag(S_matrix)
 # 2. Transpose V to get VT
 VT = V.T
 
-k = 35 #reduce k makes blurry
+k = 80 #reduce k makes blurry
 
 A_k = U[:, :k] @ np.diag(S[:k]) @ VT[:k, :]
 

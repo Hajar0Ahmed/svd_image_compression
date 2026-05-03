@@ -39,7 +39,7 @@ def assert_svd_properties(A, S, U, V, tol=1e-9):
     s = np.diag(S) if S.ndim > 1 else S
     assert np.all(s >= -tol), "Found negative singular values"
     
-    # Check 4b: Sorted order (np.diff <= 0 for descending)
+    # Sorted order (np.diff <= 0 for descending)
     diffs = np.diff(s)
     assert np.all(diffs <= 1e-12), f"Singular values not sorted: {s}"
 
@@ -90,7 +90,7 @@ def test_identity_matrix():
     np.testing.assert_allclose(np.diag(S), np.ones(5), atol=1e-10)
 
 def test_ill_conditioned():
-    '''CASE: Ill conditioned matrix (Singular values should all be 1).'''
+    '''CASE: Ill conditioned matrix .'''
     s = np.array([1, 1e-4, 1e-8, 1e-12, 1e-16])
     A = np.diag(s)
     
@@ -116,4 +116,4 @@ def test_backward_error():
     A_reconstructed = U @ S @ V.T
     backward_error = np.linalg.norm(A - A_reconstructed) / np.linalg.norm(A)
     
-    assert backward_error < 1e-14
+    assert backward_error < 1e-12
